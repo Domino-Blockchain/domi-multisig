@@ -1,9 +1,14 @@
+#[cfg(feature = "domichain")]
+use domichain_program;
+#[cfg(feature = "solana")]
+use solana_program as domichain_program;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use solana_program::instruction::{AccountMeta, Instruction};
-use solana_program::program_error::ProgramError;
-use solana_program::program_pack::{IsInitialized, Pack, Sealed};
-use solana_program::pubkey::Pubkey;
+use domichain_program::instruction::{AccountMeta, Instruction};
+use domichain_program::program_error::ProgramError;
+use domichain_program::program_pack::{IsInitialized, Pack, Sealed};
+use domichain_program::pubkey::Pubkey;
 
 use multisig_derive::MultisigPack;
 

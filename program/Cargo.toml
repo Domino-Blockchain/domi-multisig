@@ -5,28 +5,39 @@ authors = ["Broxus team"]
 edition = "2021"
 
 [features]
+default = ["test-bpf", "domichain"]
 no-entrypoint = []
-test-bpf = ["bindings"]
-bindings = ["no-entrypoint", "uuid", "getrandom"]
-wasm = ["no-entrypoint", "bindings", "serde-wasm-bindgen", "wasm-bindgen", "js-sys"]
+test-bpf = ["bindings", "solana-program-test", "domichain-program-test", "solana-sdk", "domichain-sdk"]
+# bindings = ["no-entrypoint", "uuid", "getrandom"]
+bindings = ["no-entrypoint", "uuid"]
+# wasm = ["no-entrypoint", "bindings", "serde-wasm-bindgen", "wasm-bindgen", "js-sys"]
+solana = ["solana-program"]
+domichain = ["domichain-program"]
 
 [dependencies]
 borsh = "0.10"
 serde = { version = "1.0", features = ["derive"] }
-solana-program = "1.16"
+solana-program = { version = "=1.16.1", optional = true }
+domichain-program = { path = "../../domichain/sdk/program", optional = true }
 thiserror = "1.0"
 
 js-sys = { version = "0.3", optional = true }
 serde-wasm-bindgen = {version = "0.6", optional = true }
 wasm-bindgen = { version = "0.2.84", features = ["serde-serialize"], optional = true }
 uuid = { version = "1.1", features = ["v4", "serde"], optional = true }
-getrandom = { version = "0.2", features = ["js"], optional = true }
+# getrandom = { version = "=0.2.2", features = ["js"], optional = true }
+# ahash = "=0.8.6"
 
 multisig-derive = { path = "../multisig-derive" }
 
+# for tests
+solana-program-test = { version = "=1.16.1", optional = true }
+domichain-program-test = { path = "../../domichain/program-test", optional = true }
+solana-sdk = { version = "=1.16.1", optional = true }
+domichain-sdk = { path = "../../domichain/sdk", optional = true }
+
 [dev-dependencies]
-solana-program-test = "1.16"
-solana-sdk = "1.16"
+tarpc = { version = "=0.29.0" }
 
 [lib]
 crate-type = ["cdylib", "lib"]

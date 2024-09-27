@@ -8,3 +8,7 @@ Cargo.lock
 dist/
 program/pkg/
 **/*.DS_Store
+
+test-ledger
+logs.log
+*.log

@@ -1,4 +1,9 @@
-use solana_program::{
+#[cfg(feature = "domichain")]
+use domichain_program;
+#[cfg(feature = "solana")]
+use solana_program as domichain_program;
+
+use domichain_program::{
     account_info::AccountInfo, entrypoint, entrypoint::ProgramResult, pubkey::Pubkey,
 };
 

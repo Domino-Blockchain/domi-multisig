@@ -1,3 +1,8 @@
+#[cfg(feature = "domichain")]
+use domichain_program;
+#[cfg(feature = "solana")]
+use solana_program as domichain_program;
+
 use std::str::FromStr;
 
 use borsh::BorshSerialize;
@@ -5,10 +10,10 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::{JsCast, JsValue};
 
-use solana_program::instruction::{AccountMeta, Instruction};
-use solana_program::program_pack::Pack;
-use solana_program::pubkey::Pubkey;
-use solana_program::{bpf_loader_upgradeable, system_program, sysvar};
+use domichain_program::instruction::{AccountMeta, Instruction};
+use domichain_program::program_pack::Pack;
+use domichain_program::pubkey::Pubkey;
+use domichain_program::{bpf_loader_upgradeable, system_program, sysvar};
 
 use crate::*;
 

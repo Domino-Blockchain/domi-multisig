@@ -1,6 +1,11 @@
+#[cfg(feature = "domichain")]
+use domichain_program;
+#[cfg(feature = "solana")]
+use solana_program as domichain_program;
+
 use thiserror::Error;
 
-use solana_program::program_error::ProgramError;
+use domichain_program::program_error::ProgramError;
 
 #[derive(Error, Debug, Copy, Clone)]
 pub enum MultisigError {

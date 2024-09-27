@@ -1,5 +1,10 @@
+#[cfg(feature = "domichain")]
+use domichain_program;
+#[cfg(feature = "solana")]
+use solana_program as domichain_program;
+
 use borsh::{BorshDeserialize, BorshSerialize};
-use solana_program::pubkey::Pubkey;
+use domichain_program::pubkey::Pubkey;
 
 use crate::TransactionAccount;
 

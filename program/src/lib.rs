@@ -1,3 +1,8 @@
+#[cfg(feature = "domichain")]
+use domichain_program;
+#[cfg(feature = "solana")]
+use solana_program as domichain_program;
+
 mod error;
 mod instruction;
 mod processor;
@@ -26,4 +31,4 @@ pub use self::bindings::*;
 #[cfg(not(feature = "no-entrypoint"))]
 mod entrypoint;
 
-solana_program::declare_id!("msigLK5Pz1XD5GcTTSx3JNik7NTx8JbfbD8eF5sw89h");
+domichain_program::declare_id!("msigLK5Pz1XD5GcTTSx3JNik7NTx8JbfbD8eF5sw89h");

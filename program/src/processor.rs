@@ -1,15 +1,20 @@
+#[cfg(feature = "domichain")]
+use domichain_program;
+#[cfg(feature = "solana")]
+use solana_program as domichain_program;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use solana_program::account_info::{next_account_info, AccountInfo};
-use solana_program::entrypoint::ProgramResult;
-use solana_program::instruction::Instruction;
-use solana_program::program::invoke_signed;
-use solana_program::program_error::ProgramError;
-use solana_program::program_pack::Pack;
-use solana_program::pubkey::Pubkey;
-use solana_program::rent::Rent;
-use solana_program::sysvar::Sysvar;
-use solana_program::{msg, system_instruction};
+use domichain_program::account_info::{next_account_info, AccountInfo};
+use domichain_program::entrypoint::ProgramResult;
+use domichain_program::instruction::Instruction;
+use domichain_program::program::invoke_signed;
+use domichain_program::program_error::ProgramError;
+use domichain_program::program_pack::Pack;
+use domichain_program::pubkey::Pubkey;
+use domichain_program::rent::Rent;
+use domichain_program::sysvar::Sysvar;
+use domichain_program::{msg, system_instruction};
 
 use crate::{
     require, Multisig, MultisigError, MultisigInstruction, Transaction, TransactionAccount,
