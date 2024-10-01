@@ -127,8 +127,8 @@ pub fn execute_transaction(
 
     for account in accs {
         let account_meta = match account.is_writable {
-            true => AccountMeta::new(account.pubkey, false),
-            false => AccountMeta::new_readonly(account.pubkey, false),
+            true => AccountMeta::new(account.pubkey, account.is_signer),
+            false => AccountMeta::new_readonly(account.pubkey, account.is_signer),
         };
         accounts.push(account_meta);
     }

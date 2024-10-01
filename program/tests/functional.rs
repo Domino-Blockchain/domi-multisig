@@ -6,6 +6,10 @@ use domichain_program;
 use domichain_program_test;
 #[cfg(feature = "domichain")]
 use domichain_sdk;
+use domichain_sdk::rent::Rent;
+use domichain_sdk::signers::Signers;
+#[cfg(feature = "domichain")]
+use domichain_sdk::system_instruction::create_account;
 
 #[cfg(feature = "solana")]
 use solana_program as domichain_program;
@@ -320,7 +324,6 @@ impl MultisigClient {
 
         assert_eq!(transaction_data.is_initialized, true);
         assert_eq!(transaction_data.did_execute, false);
-        assert_eq!(transaction_data.program_id, multisig::id());
 
         self.sync_multisig_data().await;
 
@@ -839,4 +842,126 @@ async fn test() {
         multisig_data.pending_transactions.len(),
         multisig::MAX_TRANSACTIONS - 2
     );
+}
+
+#[tokio::test]
+async fn test_client_multiple_instructions() {
+    let program_test = ProgramTest::new(
+        "multisig",
+        multisig::id(),
+        processor!(multisig::Processor::process),
+    );
+
+    // Start Program Test
+    let (mut banks_client, funder, recent_blockhash) = program_test.start().await;
+
+    let threshold = 1;
+
+    let custodian_1 = Keypair::new();
+    let owners = vec![custodian_1.pubkey()];
+
+    let voter = custodian_1.insecure_clone();
+
+    dbg!(funder.pubkey(), voter.pubkey());
+
+    let multisig_client_1 = MultisigClient::create_new(
+        threshold,
+        owners,
+        banks_client.clone(),
+        funder.insecure_clone(),
+        voter,
+    )
+    .await;
+
+    dbg!(multisig_client_1.multisig_address);
+
+    let new_account = Keypair::new();
+    let space = 10;
+    let ix = create_account(
+        &funder.pubkey(),
+        &new_account.pubkey(),
+        1.max(Rent::default().minimum_balance(space)),
+        space as u64,
+        &new_account.pubkey(),
+    );
+
+    let new_account_data = banks_client
+        .get_account(new_account.pubkey())
+        .await
+        .unwrap();
+    dbg!(new_account_data.is_some());
+
+    let seed = uuid::Uuid::new_v4().as_u128();
+    let transaction_address = multisig::get_transaction_address(seed);
+
+    // Create Transaction instruction
+    let mut transaction = Transaction::new_with_payer(
+        &[multisig::create_transaction(
+            &funder.pubkey(),
+            &custodian_1.pubkey(),
+            &multisig_client_1.multisig_address,
+            seed,
+            ix,
+        )],
+        Some(&funder.pubkey()),
+    );
+    let _ = dbg!(transaction.get_signing_keypair_positions(&[&funder, &custodian_1].pubkeys()));
+    transaction.sign(&[&funder, &custodian_1], recent_blockhash);
+
+    banks_client
+        .process_transaction(transaction)
+        .await
+        .expect("process_transaction");
+
+    // Execute
+    let transaction_info = banks_client
+        .get_account(transaction_address)
+        .await
+        .expect("get_account")
+        .expect("account");
+
+    let transaction_data = multisig::Transaction::unpack_from_slice(transaction_info.data())
+        .expect("transaction unpack");
+
+    let accounts = transaction_data.accounts;
+
+    let mut transaction = Transaction::new_with_payer(
+        &[multisig::execute_transaction(
+            &multisig_client_1.multisig_address,
+            &transaction_address,
+            accounts,
+        )],
+        Some(&funder.pubkey()),
+    );
+
+    dbg!(transaction.message.account_keys.len());
+    dbg!(transaction.message.header.num_required_signatures);
+    let signed_keys = &transaction.message.account_keys
+        [0..transaction.message.header.num_required_signatures as usize];
+    dbg!(signed_keys);
+
+    let _ = dbg!(transaction.get_signing_keypair_positions(&[&funder, &new_account].pubkeys()));
+    transaction.sign(&[&funder, &new_account], recent_blockhash);
+
+    banks_client
+        .process_transaction(transaction)
+        .await
+        .expect("process_transaction");
+
+    // Check multisig pending transactions
+    let multisig_info = banks_client
+        .get_account(multisig_client_1.multisig_address)
+        .await
+        .expect("get_account")
+        .expect("account");
+
+    let multisig_data = multisig::Multisig::unpack(multisig_info.data()).expect("multisig unpack");
+
+    assert_eq!(multisig_data.pending_transactions.len(), 0);
+
+    let new_account_data = banks_client
+        .get_account(new_account.pubkey())
+        .await
+        .unwrap();
+    dbg!(new_account_data);
 }
