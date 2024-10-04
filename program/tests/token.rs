@@ -11,9 +11,7 @@ use solana_program_test as domichain_program_test;
 use solana_sdk as domichain_sdk;
 
 use domichain_program_test::{processor, tokio, ProgramTest, ProgramTestContext};
-use domichain_sdk::account::ReadableAccount;
 use domichain_sdk::signature::{Keypair, Signer};
-use domichain_sdk::transaction::Transaction;
 use multisig::MultisigClient;
 use spl_token_client;
 
@@ -166,7 +164,7 @@ async fn test_multisig_token_transfer() {
         bob,
         ..
     } = TestContext::new(program_test).await;
-    let mut banks_client = ctx.lock().await.banks_client.clone();
+    let banks_client = ctx.lock().await.banks_client.clone();
     let funder = ctx.lock().await.payer.insecure_clone();
 
     // Multisig
@@ -177,7 +175,7 @@ async fn test_multisig_token_transfer() {
 
     let voter = custodian_1.insecure_clone();
 
-    let multisig_client_1 = MultisigClient::create_new(
+    let mut multisig_client_1 = MultisigClient::create_new(
         threshold,
         owners,
         banks_client.clone(),
@@ -218,82 +216,43 @@ async fn test_multisig_token_transfer() {
         .expect("failed to mint token");
 
     // Transfer from miltisig:
-    // - create transfer instruction
     let transfer_amount = mint_amount.overflowing_div(3).0;
-    let transfer_ixs_1 = token
-        .transfer_ix(
-            &multisig_vault,
-            &alice_vault,
-            &multisig_address,
-            transfer_amount,
-            &[multisig_address],
-        )
-        .await
-        .expect("failed to create transfer ix");
-    let transfer_ixs_2 = token
-        .transfer_ix(
-            &multisig_vault,
-            &bob_vault,
-            &multisig_address,
-            transfer_amount,
-            &[multisig_address],
-        )
-        .await
-        .expect("failed to create transfer ix");
 
+    // - create transfer instruction
     // - create proposal
-    let recent_blockhash = ctx.lock().await.last_blockhash;
-    let seed = uuid::Uuid::new_v4().as_u128();
-
+    // Combine into one list of instructions
     let mut ixs = Vec::new();
-    ixs.extend(transfer_ixs_1);
-    ixs.extend(transfer_ixs_2);
-
-    let mut transaction = Transaction::new_with_payer(
-        &[multisig::create_transaction(
-            &funder.pubkey(),
-            &custodian_1.pubkey(),
-            &multisig_client_1.multisig_address,
-            seed,
-            ixs,
-        )],
-        Some(&funder.pubkey()),
+    // Transfer from Multisig to Alice
+    ixs.extend(
+        token
+            .transfer_ix(
+                &multisig_vault,
+                &alice_vault,
+                &multisig_address,
+                transfer_amount,
+                &[multisig_address],
+            )
+            .await
+            .expect("failed to create transfer ix"),
     );
-    transaction.sign(&[&funder, &custodian_1], recent_blockhash);
-    banks_client
-        .process_transaction(transaction)
-        .await
-        .expect("process_transaction");
+    // Transfer from Multisig to Bob
+    ixs.extend(
+        token
+            .transfer_ix(
+                &multisig_vault,
+                &bob_vault,
+                &multisig_address,
+                transfer_amount,
+                &[multisig_address],
+            )
+            .await
+            .expect("failed to create transfer ix"),
+    );
+
+    let transaction_address = multisig_client_1.add_transaction(ixs).await;
 
     // - execute proposal
-    let transaction_address = multisig::get_transaction_address(seed);
-    let transaction_info = banks_client
-        .get_account(transaction_address)
-        .await
-        .expect("get_account")
-        .expect("account");
-    let transaction_data = multisig::Transaction::unpack_from_slice(transaction_info.data())
-        .expect("transaction unpack");
-
-    let accounts: Vec<_> = transaction_data
-        .instructions
-        .into_iter()
-        .flat_map(|ix| ix.accounts)
-        .collect();
-
-    let mut transaction = Transaction::new_with_payer(
-        &[multisig::execute_transaction(
-            &multisig_client_1.multisig_address,
-            &transaction_address,
-            &accounts,
-        )],
-        Some(&funder.pubkey()),
-    );
-    transaction.sign(&[&funder], recent_blockhash);
-    banks_client
-        .process_transaction(transaction)
-        .await
-        .expect("process_transaction");
+    multisig_client_1.execute(transaction_address).await;
 
     // - verify transfer
     assert_eq!(

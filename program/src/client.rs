@@ -323,7 +323,8 @@ impl MultisigClient {
 
     pub async fn add_transaction(&mut self, ixs: Vec<Instruction>) -> Pubkey {
         let seed = uuid::Uuid::new_v4().as_u128();
-        self.add_transaction_with_seed(ixs, seed).await
+        let transaction_address = self.add_transaction_with_seed(ixs, seed).await;
+        transaction_address
     }
 
     pub async fn add_owner(&mut self, owner: Pubkey) -> Pubkey {
