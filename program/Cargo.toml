@@ -7,7 +7,16 @@ edition = "2021"
 [features]
 default = ["test-bpf", "domichain"]
 no-entrypoint = []
-test-bpf = ["bindings", "solana-program-test", "domichain-program-test", "solana-sdk", "domichain-sdk"]
+test-bpf = [
+    "bindings",
+    "solana-program-test",
+    "domichain-program-test",
+    "solana-sdk",
+    "domichain-sdk",
+    "spl-token",
+    # "spl-token-2022",
+    "spl-token-client",
+]
 # bindings = ["no-entrypoint", "uuid", "getrandom"]
 bindings = ["no-entrypoint", "uuid"]
 # wasm = ["no-entrypoint", "bindings", "serde-wasm-bindgen", "wasm-bindgen", "js-sys"]
@@ -19,11 +28,16 @@ borsh = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 solana-program = { version = "=1.16.1", optional = true }
 domichain-program = { path = "../../domichain/sdk/program", optional = true }
+spl-token = { path = "../../domichain-program-library/token/program", optional = true }
+# spl-token-2022 = { path = "../../domichain-program-library/token/program-2022", optional = true }
+spl-token-client = { path = "../../domichain-program-library/token/client", optional = true }
 thiserror = "1.0"
 
 js-sys = { version = "0.3", optional = true }
-serde-wasm-bindgen = {version = "0.6", optional = true }
-wasm-bindgen = { version = "0.2.84", features = ["serde-serialize"], optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+wasm-bindgen = { version = "0.2.84", features = [
+    "serde-serialize",
+], optional = true }
 uuid = { version = "1.1", features = ["v4", "serde"], optional = true }
 # getrandom = { version = "=0.2.2", features = ["js"], optional = true }
 # ahash = "=0.8.6"

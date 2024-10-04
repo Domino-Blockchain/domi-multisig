@@ -17,7 +17,7 @@ use domichain_program::sysvar::Sysvar;
 use domichain_program::{msg, system_instruction};
 
 use crate::{
-    require, Multisig, MultisigError, MultisigInstruction, Transaction, TransactionAccount,
+    require, Multisig, MultisigError, MultisigInstruction, Transaction, TransactionInstruction,
     MAX_SIGNERS, MAX_TRANSACTIONS, MIN_SIGNERS,
 };
 
@@ -39,14 +39,9 @@ impl Processor {
                 msg!("Instruction: Create Multisig");
                 Self::process_create_multisig(program_id, accounts, seed, owners, threshold)?;
             }
-            MultisigInstruction::CreateTransaction {
-                seed,
-                pid,
-                accs,
-                data,
-            } => {
+            MultisigInstruction::CreateTransaction { seed, instructions } => {
                 msg!("Instruction: Create Transaction");
-                Self::process_create_transaction(program_id, accounts, seed, pid, accs, data)?;
+                Self::process_create_transaction(program_id, accounts, seed, instructions)?;
             }
             MultisigInstruction::Approve => {
                 msg!("Instruction: Approve");
@@ -272,9 +267,7 @@ impl Processor {
         program_id: &Pubkey,
         accounts: &[AccountInfo],
         seed: u128,
-        pid: Pubkey,
-        accs: Vec<TransactionAccount>,
-        data: Vec<u8>,
+        instructions: Vec<TransactionInstruction>,
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
 
@@ -285,6 +278,13 @@ impl Processor {
         let system_program_info = next_account_info(account_info_iter)?;
         let rent_sysvar_info = next_account_info(account_info_iter)?;
         let rent = &Rent::from_account_info(rent_sysvar_info)?;
+
+        // Get only first instruction
+        let TransactionInstruction {
+            program_id: transaction_program_id,
+            accounts: transaction_accounts,
+            data,
+        } = instructions.into_iter().next().unwrap(); // TODO: handle multiple instructions
 
         if !proposer_account_info.is_signer {
             return Err(ProgramError::MissingRequiredSignature);
@@ -297,8 +297,9 @@ impl Processor {
             MultisigError::InvalidThreshold
         );
 
+        // Last transaction allowed only delete pending transactions
         if multisig_account_data.pending_transactions.len() + 1 == MAX_TRANSACTIONS {
-            if *program_id != pid {
+            if *program_id != transaction_program_id {
                 return Err(MultisigError::InvalidLastTransaction.into());
             }
 
@@ -333,15 +334,20 @@ impl Processor {
         signers.resize(multisig_account_data.owners.len(), false);
         signers[owner_index] = true;
 
+        // TODO: handle multiple instructions
         let tx = Transaction {
             is_initialized: true,
             multisig: *multisig_account_info.key,
-            program_id: pid,
-            accounts: accs,
-            did_execute: false,
-            data,
             signers,
+            did_execute: false,
+            instructions: vec![TransactionInstruction {
+                program_id: transaction_program_id,
+                accounts: transaction_accounts,
+                data,
+            }],
         };
+
+        msg!("DBG: process_create_transaction: tx: {tx:#?}");
 
         let data_len = tx.try_to_vec()?.len();
 
@@ -446,11 +452,17 @@ impl Processor {
             .filter(|&did_sign| *did_sign)
             .count() as u64;
         if sig_count < multisig_account_data.threshold {
+            msg!(
+                "DBG: sig_count: {sig_count} < {}",
+                multisig_account_data.threshold
+            );
             return Err(MultisigError::NotEnoughSigners.into());
         }
 
         // Execute the transaction signed by the multisig.
-        let mut ix: Instruction = (&transaction_account_data).into();
+        // TODO: handle multiple instructions
+        // TODO: for loop
+        let mut ix: Instruction = (&transaction_account_data.instructions[0]).into();
         ix.accounts = ix
             .accounts
             .iter()

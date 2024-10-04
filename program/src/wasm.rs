@@ -144,8 +144,8 @@ pub fn create_transaction_ix(
 
     let data = MultisigInstruction::CreateTransaction {
         seed,
-        pid: ix.program_id,
-        accs: accounts,
+        program_id: ix.program_id,
+        accounts,
         data: ix.data,
     }
     .try_to_vec()

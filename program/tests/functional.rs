@@ -6,16 +6,11 @@ use domichain_program;
 use domichain_program_test;
 #[cfg(feature = "domichain")]
 use domichain_sdk;
-use domichain_sdk::rent::Rent;
-use domichain_sdk::signers::Signers;
-#[cfg(feature = "domichain")]
-use domichain_sdk::system_instruction::create_account;
 
 #[cfg(feature = "solana")]
 use solana_program as domichain_program;
 #[cfg(feature = "solana")]
 use solana_program_test as domichain_program_test;
-use solana_program_test::tokio::time::Instant;
 #[cfg(feature = "solana")]
 use solana_sdk as domichain_sdk;
 
@@ -25,15 +20,18 @@ use std::time::Duration;
 use domichain_program::program_pack::Pack;
 use domichain_program::pubkey::Pubkey;
 use domichain_program_test::tokio::sync::Mutex;
-use domichain_program_test::tokio::time::timeout;
+use domichain_program_test::tokio::time::{timeout, Instant};
 use domichain_program_test::{processor, tokio, BanksClient, ProgramTest};
 use domichain_sdk::account::ReadableAccount;
 use domichain_sdk::instruction::Instruction;
+use domichain_sdk::native_token::SATOMIS_PER_DOMI;
+use domichain_sdk::rent::Rent;
 use domichain_sdk::signature::{Keypair, Signer};
+use domichain_sdk::system_instruction::transfer;
 use domichain_sdk::transaction::Transaction;
 use multisig::Multisig;
 
-struct MultisigClient {
+pub struct MultisigClient {
     banks_client: BanksClient,
     funder: Keypair,
     voter: Keypair,
@@ -240,13 +238,14 @@ impl MultisigClient {
             .await;
 
         // Execute
-        let accounts = transaction_data.accounts;
+        // FIXME: handle multiple instructions
+        let accounts = transaction_data.instructions[0].clone().accounts;
 
         let mut transaction = Transaction::new_with_payer(
             &[multisig::execute_transaction(
                 &self.multisig_address,
                 &transaction_address,
-                accounts,
+                &accounts,
             )],
             Some(&self.funder.pubkey()),
         );
@@ -278,12 +277,13 @@ impl MultisigClient {
             let transaction_data = self
                 .get_transaction_data_by_address(*transaction_address)
                 .await;
-            let accounts = transaction_data.accounts;
+            // FIXME: handle multiple instructions
+            let accounts = transaction_data.instructions[0].clone().accounts;
 
             ixs.push(multisig::execute_transaction(
                 &self.multisig_address,
                 transaction_address,
-                accounts,
+                &accounts,
             ));
         }
 
@@ -297,13 +297,15 @@ impl MultisigClient {
         let recent_blockhash = self.banks_client.get_latest_blockhash().await.unwrap();
 
         // Create Transaction instruction
+        // FIXME: handle multiple instructions
+        let ixs = vec![ix];
         let mut transaction = Transaction::new_with_payer(
             &[multisig::create_transaction(
                 &self.funder.pubkey(),
                 &self.voter.pubkey(),
                 &self.multisig_address,
                 seed,
-                ix,
+                ixs,
             )],
             Some(&self.funder.pubkey()),
         );
@@ -608,20 +610,27 @@ async fn test() {
         ]
     );
 
+    // dbg!(funder.pubkey());
+    // dbg!(custodian_1.pubkey());
+    // dbg!(custodian_2.pubkey());
+    // dbg!(custodian_3.pubkey());
+
     // Add owners
     for _ in 0..7 {
         let seed = uuid::Uuid::new_v4().as_u128();
 
         let owner = Pubkey::new_unique();
+        // dbg!(owner);
 
         // Create Transaction instruction
+        // FIXME: handle multiple instructions
         let mut transaction = Transaction::new_with_payer(
             &[multisig::create_transaction(
                 &funder.pubkey(),
                 &custodian_1.pubkey(),
                 &multisig_address,
                 seed,
-                multisig::add_owner(&multisig_address, owner),
+                vec![multisig::add_owner(&multisig_address, owner)],
             )],
             Some(&funder.pubkey()),
         );
@@ -633,6 +642,7 @@ async fn test() {
             .expect("process_transaction");
 
         let transaction_address = multisig::get_transaction_address(seed);
+        // dbg!(transaction_address);
 
         let transaction_info = banks_client
             .get_account(transaction_address)
@@ -643,9 +653,12 @@ async fn test() {
         let transaction_data = multisig::Transaction::unpack_from_slice(transaction_info.data())
             .expect("transaction unpack");
 
+        // dbg!(&transaction_data);
+
         assert_eq!(transaction_data.is_initialized, true);
         assert_eq!(transaction_data.did_execute, false);
-        assert_eq!(transaction_data.program_id, multisig::id());
+        // FIXME: handle multiple instructions
+        assert_eq!(transaction_data.instructions[0].program_id, multisig::id());
 
         // Approve
         let mut transaction = Transaction::new_with_payer(
@@ -677,17 +690,26 @@ async fn test() {
         assert_eq!(transaction_data.signers[2], false);
 
         // Execute
-        let accounts = transaction_data.accounts;
+        // FIXME: handle multiple instructions
+        let accounts = transaction_data.instructions[0].clone().accounts;
+        // dbg!(&accounts);
 
         let mut transaction = Transaction::new_with_payer(
             &[multisig::execute_transaction(
                 &multisig_address,
                 &transaction_address,
-                accounts,
+                &accounts,
             )],
             Some(&funder.pubkey()),
         );
+        // dbg!(&transaction);
 
+        // dbg!(transaction.signer_key(0, 0));
+        // dbg!(transaction.signer_key(0, 1));
+        // dbg!(transaction.signer_key(0, 2));
+        // dbg!(transaction.signer_key(0, 3));
+        // dbg!(transaction.signer_key(0, 4));
+        // dbg!(transaction.signer_key(0, 5));
         transaction.sign(&[&funder], recent_blockhash);
 
         banks_client
@@ -726,13 +748,14 @@ async fn test() {
         let seed = uuid::Uuid::new_v4().as_u128();
 
         // Create Transaction instruction
+        // FIXME: handle multiple instructions
         let mut transaction = Transaction::new_with_payer(
             &[multisig::create_transaction(
                 &funder.pubkey(),
                 &custodian_1.pubkey(),
                 &multisig_address,
                 seed,
-                multisig::add_owner(&multisig_address, owner),
+                vec![multisig::add_owner(&multisig_address, owner)],
             )],
             Some(&funder.pubkey()),
         );
@@ -752,13 +775,17 @@ async fn test() {
     let pending_transaction = *pending_transactions.last().unwrap();
 
     // Create Transaction instruction
+    // FIXME: handle multiple instructions
     let mut transaction = Transaction::new_with_payer(
         &[multisig::create_transaction(
             &funder.pubkey(),
             &custodian_1.pubkey(),
             &multisig_address,
             seed,
-            multisig::delete_pending_transaction(&multisig_address, pending_transaction),
+            vec![multisig::delete_pending_transaction(
+                &multisig_address,
+                pending_transaction,
+            )],
         )],
         Some(&funder.pubkey()),
     );
@@ -811,13 +838,14 @@ async fn test() {
     let transaction_data = multisig::Transaction::unpack_from_slice(transaction_info.data())
         .expect("transaction unpack");
 
-    let accounts = transaction_data.accounts;
+    // FIXME: handle multiple instructions
+    let accounts = transaction_data.instructions[0].clone().accounts;
 
     let mut transaction = Transaction::new_with_payer(
         &[multisig::execute_transaction(
             &multisig_address,
             &transaction_address,
-            accounts,
+            &accounts,
         )],
         Some(&funder.pubkey()),
     );
@@ -844,6 +872,7 @@ async fn test() {
     );
 }
 
+#[ignore = "cannot transfer SOL from non-empty account"]
 #[tokio::test]
 async fn test_client_multiple_instructions() {
     let program_test = ProgramTest::new(
@@ -862,8 +891,6 @@ async fn test_client_multiple_instructions() {
 
     let voter = custodian_1.insecure_clone();
 
-    dbg!(funder.pubkey(), voter.pubkey());
-
     let multisig_client_1 = MultisigClient::create_new(
         threshold,
         owners,
@@ -873,41 +900,58 @@ async fn test_client_multiple_instructions() {
     )
     .await;
 
-    dbg!(multisig_client_1.multisig_address);
-
-    let new_account = Keypair::new();
-    let space = 10;
-    let ix = create_account(
+    let ix = transfer(
         &funder.pubkey(),
-        &new_account.pubkey(),
-        1.max(Rent::default().minimum_balance(space)),
-        space as u64,
-        &new_account.pubkey(),
+        &multisig_client_1.multisig_address,
+        SATOMIS_PER_DOMI,
     );
-
-    let new_account_data = banks_client
-        .get_account(new_account.pubkey())
+    let mut transaction = Transaction::new_with_payer(&[ix], Some(&funder.pubkey()));
+    transaction.sign(&[&funder], recent_blockhash);
+    banks_client
+        .process_transaction(transaction)
         .await
+        .expect("process_transaction");
+
+    // Verify balance
+    let actual_balance = banks_client
+        .get_balance(multisig_client_1.multisig_address)
+        .await
+        .expect("get_balance");
+
+    let multisig_data = banks_client
+        .get_account(multisig_client_1.multisig_address)
+        .await
+        .expect("get_account")
         .unwrap();
-    dbg!(new_account_data.is_some());
+    let minimum_rent = Rent::default().minimum_balance(multisig_data.data.len());
+    let expected_balance = SATOMIS_PER_DOMI + minimum_rent;
+
+    assert_eq!(actual_balance, expected_balance);
+
+    let transfer_destination = Pubkey::new_unique();
+    let ix = transfer(
+        &multisig_client_1.multisig_address,
+        &transfer_destination,
+        SATOMIS_PER_DOMI,
+    );
 
     let seed = uuid::Uuid::new_v4().as_u128();
     let transaction_address = multisig::get_transaction_address(seed);
 
     // Create Transaction instruction
+    // FIXME: handle multiple instructions
+    let ixs = vec![ix];
     let mut transaction = Transaction::new_with_payer(
         &[multisig::create_transaction(
             &funder.pubkey(),
             &custodian_1.pubkey(),
             &multisig_client_1.multisig_address,
             seed,
-            ix,
+            ixs,
         )],
         Some(&funder.pubkey()),
     );
-    let _ = dbg!(transaction.get_signing_keypair_positions(&[&funder, &custodian_1].pubkeys()));
     transaction.sign(&[&funder, &custodian_1], recent_blockhash);
-
     banks_client
         .process_transaction(transaction)
         .await
@@ -919,30 +963,21 @@ async fn test_client_multiple_instructions() {
         .await
         .expect("get_account")
         .expect("account");
-
     let transaction_data = multisig::Transaction::unpack_from_slice(transaction_info.data())
         .expect("transaction unpack");
 
-    let accounts = transaction_data.accounts;
-
+    // FIXME: handle multiple instructions
+    let accounts = transaction_data.instructions[0].clone().accounts;
     let mut transaction = Transaction::new_with_payer(
         &[multisig::execute_transaction(
             &multisig_client_1.multisig_address,
             &transaction_address,
-            accounts,
+            &accounts,
         )],
         Some(&funder.pubkey()),
     );
-
-    dbg!(transaction.message.account_keys.len());
-    dbg!(transaction.message.header.num_required_signatures);
-    let signed_keys = &transaction.message.account_keys
-        [0..transaction.message.header.num_required_signatures as usize];
-    dbg!(signed_keys);
-
-    let _ = dbg!(transaction.get_signing_keypair_positions(&[&funder, &new_account].pubkeys()));
-    transaction.sign(&[&funder, &new_account], recent_blockhash);
-
+    transaction.sign(&[&funder], recent_blockhash);
+    dbg!(&transaction);
     banks_client
         .process_transaction(transaction)
         .await
@@ -954,14 +989,14 @@ async fn test_client_multiple_instructions() {
         .await
         .expect("get_account")
         .expect("account");
-
     let multisig_data = multisig::Multisig::unpack(multisig_info.data()).expect("multisig unpack");
-
     assert_eq!(multisig_data.pending_transactions.len(), 0);
 
-    let new_account_data = banks_client
-        .get_account(new_account.pubkey())
-        .await
-        .unwrap();
-    dbg!(new_account_data);
+    assert_eq!(
+        banks_client
+            .get_balance(transfer_destination)
+            .await
+            .expect("get_balance"),
+        SATOMIS_PER_DOMI
+    );
 }

@@ -6,7 +6,7 @@ use solana_program as domichain_program;
 use borsh::{BorshDeserialize, BorshSerialize};
 use domichain_program::pubkey::Pubkey;
 
-use crate::TransactionAccount;
+use crate::TransactionInstruction;
 
 #[derive(BorshSerialize, BorshDeserialize, Debug)]
 pub enum MultisigInstruction {
@@ -45,9 +45,7 @@ pub enum MultisigInstruction {
     /// ...
     CreateTransaction {
         seed: u128,
-        pid: Pubkey,
-        accs: Vec<TransactionAccount>,
-        data: Vec<u8>,
+        instructions: Vec<TransactionInstruction>,
     },
 
     /// Approves a transaction on behalf of an owner of the multisig

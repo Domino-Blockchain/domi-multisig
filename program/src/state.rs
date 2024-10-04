@@ -46,16 +46,12 @@ pub struct Transaction {
     pub is_initialized: bool,
     // The multisig account this transaction belongs to.
     pub multisig: Pubkey,
-    // Target program to execute against.
-    pub program_id: Pubkey,
-    // Accounts required for the transaction.
-    pub accounts: Vec<TransactionAccount>,
-    // Instruction data for the transaction.
-    pub data: Vec<u8>,
     // signers[index] is true if multisig.owners[index] signed the transaction.
     pub signers: Vec<bool>,
     // Boolean ensuring one time execution.
     pub did_execute: bool,
+    // Instructions for the transaction.
+    pub instructions: Vec<TransactionInstruction>,
 }
 
 impl Sealed for Transaction {}
@@ -63,16 +59,6 @@ impl Sealed for Transaction {}
 impl IsInitialized for Transaction {
     fn is_initialized(&self) -> bool {
         self.is_initialized
-    }
-}
-
-impl From<&Transaction> for Instruction {
-    fn from(tx: &Transaction) -> Instruction {
-        Instruction {
-            program_id: tx.program_id,
-            accounts: tx.accounts.iter().map(Into::into).collect(),
-            data: tx.data.clone(),
-        }
     }
 }
 
@@ -86,6 +72,26 @@ impl Transaction {
     pub fn unpack_from_slice(mut src: &[u8]) -> Result<Self, ProgramError> {
         let unpacked = Self::deserialize(&mut src)?;
         Ok(unpacked)
+    }
+}
+
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize)]
+pub struct TransactionInstruction {
+    // Target program to execute against.
+    pub program_id: Pubkey,
+    // Accounts required for the instruction.
+    pub accounts: Vec<TransactionAccount>,
+    // Instruction data for the instruction.
+    pub data: Vec<u8>,
+}
+
+impl From<&TransactionInstruction> for Instruction {
+    fn from(tx: &TransactionInstruction) -> Instruction {
+        Instruction {
+            program_id: tx.program_id,
+            accounts: tx.accounts.iter().map(Into::into).collect(),
+            data: tx.data.clone(),
+        }
     }
 }
 

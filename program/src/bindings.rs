@@ -43,30 +43,38 @@ pub fn create_transaction(
     proposer_pubkey: &Pubkey,
     multisig_pubkey: &Pubkey,
     seed: u128,
-    ix: Instruction,
+    ixs: Vec<Instruction>,
 ) -> Instruction {
-    let mut accounts = ix
-        .accounts
-        .into_iter()
-        .map(|acc| TransactionAccount {
-            pubkey: acc.pubkey,
-            is_signer: acc.is_signer,
-            is_writable: acc.is_writable,
-        })
-        .collect::<Vec<_>>();
-    accounts.push(TransactionAccount {
-        pubkey: ix.program_id,
-        is_signer: false,
-        is_writable: false,
-    });
-
     let transaction_pubkey = get_transaction_address(seed);
+
+    let mut transaction_instructions = Vec::with_capacity(ixs.len());
+    for ix in ixs {
+        let mut accounts = ix
+            .accounts
+            .into_iter()
+            .map(|acc| TransactionAccount {
+                pubkey: acc.pubkey,
+                is_signer: acc.is_signer,
+                is_writable: acc.is_writable,
+            })
+            .collect::<Vec<_>>();
+
+        // Add transaction's program ID
+        accounts.push(TransactionAccount {
+            pubkey: ix.program_id,
+            is_signer: false,
+            is_writable: false,
+        });
+        transaction_instructions.push(TransactionInstruction {
+            program_id: ix.program_id,
+            accounts,
+            data: ix.data,
+        });
+    }
 
     let data = MultisigInstruction::CreateTransaction {
         seed,
-        pid: ix.program_id,
-        accs: accounts,
-        data: ix.data,
+        instructions: transaction_instructions,
     }
     .try_to_vec()
     .expect("pack");
@@ -118,18 +126,18 @@ pub fn approve(
 pub fn execute_transaction(
     multisig_pubkey: &Pubkey,
     transaction_pubkey: &Pubkey,
-    accs: Vec<TransactionAccount>,
+    transaction_accounts: &[TransactionAccount],
 ) -> Instruction {
     let mut accounts = vec![
         AccountMeta::new(*multisig_pubkey, false),
         AccountMeta::new(*transaction_pubkey, false),
     ];
 
-    for account in accs {
-        let account_meta = match account.is_writable {
-            true => AccountMeta::new(account.pubkey, account.is_signer),
-            false => AccountMeta::new_readonly(account.pubkey, account.is_signer),
-        };
+    for account in transaction_accounts {
+        let mut account_meta: AccountMeta = account.into();
+        if account_meta.pubkey == *multisig_pubkey {
+            account_meta.is_signer = false;
+        }
         accounts.push(account_meta);
     }
 

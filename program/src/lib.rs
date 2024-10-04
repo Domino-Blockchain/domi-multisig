@@ -8,11 +8,13 @@ mod instruction;
 mod processor;
 mod state;
 mod utils;
+mod client;
 
 pub use self::error::*;
 pub use self::instruction::*;
 pub use self::processor::*;
 pub use self::state::*;
+pub use self::client::*;
 
 #[cfg(feature = "wasm")]
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
