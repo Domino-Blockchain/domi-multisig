@@ -219,7 +219,6 @@ async fn test_multisig_token_transfer() {
     let transfer_amount = mint_amount.overflowing_div(3).0;
 
     // - create transfer instruction
-    // - create proposal
     // Combine into one list of instructions
     let mut ixs = Vec::new();
     // Transfer from Multisig to Alice
@@ -249,6 +248,7 @@ async fn test_multisig_token_transfer() {
             .expect("failed to create transfer ix"),
     );
 
+    // - create proposal
     let transaction_address = multisig_client_1.add_transaction(ixs).await;
 
     // - execute proposal
