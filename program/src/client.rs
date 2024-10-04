@@ -14,6 +14,7 @@ use solana_program_test as domichain_program_test;
 #[cfg(feature = "solana")]
 use solana_sdk as domichain_sdk;
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use domichain_program::program_pack::Pack;
@@ -25,7 +26,7 @@ use domichain_sdk::instruction::Instruction;
 use domichain_sdk::signature::{Keypair, Signer};
 use domichain_sdk::transaction::Transaction;
 
-use crate::Multisig;
+use crate::{Multisig, TransactionAccount};
 
 pub struct MultisigClient {
     banks_client: BanksClient,
@@ -233,14 +234,11 @@ impl MultisigClient {
             .await;
 
         // Execute
-        // FIXME: handle multiple instructions
-        let accounts = transaction_data.instructions[0].clone().accounts;
-
         let mut transaction = Transaction::new_with_payer(
             &[crate::execute_transaction(
                 &self.multisig_address,
                 &transaction_address,
-                &accounts,
+                &unique_accounts(transaction_data),
             )],
             Some(&self.funder.pubkey()),
         );
@@ -272,13 +270,11 @@ impl MultisigClient {
             let transaction_data = self
                 .get_transaction_data_by_address(*transaction_address)
                 .await;
-            // FIXME: handle multiple instructions
-            let accounts = transaction_data.instructions[0].clone().accounts;
 
             ixs.push(crate::execute_transaction(
                 &self.multisig_address,
                 transaction_address,
-                &accounts,
+                &unique_accounts(transaction_data),
             ));
         }
 
@@ -288,12 +284,10 @@ impl MultisigClient {
         self.submit_transaction(transaction).await;
     }
 
-    pub async fn add_transaction_with_seed(&mut self, ix: Instruction, seed: u128) -> Pubkey {
+    pub async fn add_transaction_with_seed(&mut self, ixs: Vec<Instruction>, seed: u128) -> Pubkey {
         let recent_blockhash = self.banks_client.get_latest_blockhash().await.unwrap();
 
         // Create Transaction instruction
-        // FIXME: handle multiple instructions
-        let ixs = vec![ix];
         let mut transaction = Transaction::new_with_payer(
             &[crate::create_transaction(
                 &self.funder.pubkey(),
@@ -327,20 +321,40 @@ impl MultisigClient {
         transaction_address
     }
 
-    pub async fn add_transaction(&mut self, ix: Instruction) -> Pubkey {
+    pub async fn add_transaction(&mut self, ixs: Vec<Instruction>) -> Pubkey {
         let seed = uuid::Uuid::new_v4().as_u128();
-        self.add_transaction_with_seed(ix, seed).await
+        self.add_transaction_with_seed(ixs, seed).await
     }
 
     pub async fn add_owner(&mut self, owner: Pubkey) -> Pubkey {
         let ix = crate::add_owner(&self.multisig_address, owner);
-        let transaction_address = self.add_transaction(ix).await;
+        let transaction_address = self.add_transaction(vec![ix]).await;
         transaction_address
     }
 
     pub async fn delete_pending_transaction(&mut self, pending_transaction: Pubkey) -> Pubkey {
         let ix = crate::delete_pending_transaction(&self.multisig_address, pending_transaction);
-        let transaction_address = self.add_transaction(ix).await;
+        let transaction_address = self.add_transaction(vec![ix]).await;
         transaction_address
     }
+}
+
+fn unique_accounts(transaction_data: crate::Transaction) -> Vec<TransactionAccount> {
+    let accounts: Vec<_> = transaction_data
+        .instructions
+        .into_iter()
+        .flat_map(|ix| ix.accounts)
+        .collect();
+    let mut pubkeys_to_account: HashMap<Pubkey, TransactionAccount> = HashMap::new();
+    for new_account in accounts {
+        pubkeys_to_account
+            .entry(new_account.pubkey)
+            .and_modify(|existing_account| {
+                // Update signer/writable if other instruction have it
+                existing_account.is_signer |= new_account.is_signer;
+                existing_account.is_writable |= new_account.is_writable;
+            })
+            .or_insert(new_account);
+    }
+    pubkeys_to_account.into_values().collect()
 }

@@ -279,13 +279,6 @@ impl Processor {
         let rent_sysvar_info = next_account_info(account_info_iter)?;
         let rent = &Rent::from_account_info(rent_sysvar_info)?;
 
-        // Get only first instruction
-        let TransactionInstruction {
-            program_id: transaction_program_id,
-            accounts: transaction_accounts,
-            data,
-        } = instructions.into_iter().next().unwrap(); // TODO: handle multiple instructions
-
         if !proposer_account_info.is_signer {
             return Err(ProgramError::MissingRequiredSignature);
         }
@@ -299,7 +292,16 @@ impl Processor {
 
         // Last transaction allowed only delete pending transactions
         if multisig_account_data.pending_transactions.len() + 1 == MAX_TRANSACTIONS {
-            if *program_id != transaction_program_id {
+            if instructions.len() != 1 {
+                return Err(MultisigError::InvalidLastTransaction.into());
+            }
+            let TransactionInstruction {
+                program_id: transaction_program_id,
+                accounts: _,
+                data,
+            } = &instructions[0];
+
+            if *program_id != *transaction_program_id {
                 return Err(MultisigError::InvalidLastTransaction.into());
             }
 
@@ -334,17 +336,12 @@ impl Processor {
         signers.resize(multisig_account_data.owners.len(), false);
         signers[owner_index] = true;
 
-        // TODO: handle multiple instructions
         let tx = Transaction {
             is_initialized: true,
             multisig: *multisig_account_info.key,
             signers,
             did_execute: false,
-            instructions: vec![TransactionInstruction {
-                program_id: transaction_program_id,
-                accounts: transaction_accounts,
-                data,
-            }],
+            instructions,
         };
 
         msg!("DBG: process_create_transaction: tx: {tx:#?}");
@@ -460,24 +457,36 @@ impl Processor {
         }
 
         // Execute the transaction signed by the multisig.
-        // TODO: handle multiple instructions
-        // TODO: for loop
-        let mut ix: Instruction = (&transaction_account_data.instructions[0]).into();
-        ix.accounts = ix
-            .accounts
-            .iter()
-            .map(|acc| {
-                let mut acc = acc.clone();
-                if &acc.pubkey == multisig_account_info.key {
-                    acc.is_signer = true;
-                }
-                acc
-            })
-            .collect();
+        let all_accounts = account_info_iter.cloned().collect::<Vec<_>>();
 
-        let accounts = account_info_iter.cloned().collect::<Vec<_>>();
+        for ix in &transaction_account_data.instructions {
+            let mut ix: Instruction = ix.into();
 
-        invoke_signed(&ix, &accounts, &[multisig_account_seeds])?;
+            ix.accounts = ix
+                .accounts
+                .iter()
+                .map(|acc| {
+                    let mut acc = acc.clone();
+                    if &acc.pubkey == multisig_account_info.key {
+                        acc.is_signer = true;
+                    }
+                    acc
+                })
+                .collect();
+            let accounts: Vec<_> = ix
+                .accounts
+                .iter()
+                .map(|acc| {
+                    all_accounts
+                        .iter()
+                        .find(|acc_info| acc.pubkey == *acc_info.key)
+                        .unwrap()
+                        .clone()
+                })
+                .collect();
+
+            invoke_signed(&ix, &accounts, &[multisig_account_seeds])?;
+        }
 
         // Burn the transaction to ensure one time use.
         transaction_account_data.did_execute = true;

@@ -163,6 +163,7 @@ async fn test_multisig_token_transfer() {
         token,
 
         alice,
+        bob,
         ..
     } = TestContext::new(program_test).await;
     let mut banks_client = ctx.lock().await.banks_client.clone();
@@ -192,12 +193,17 @@ async fn test_multisig_token_transfer() {
         .await
         .expect("failed to create associated token account");
     let multisig_vault = token.get_associated_token_address(&multisig_address);
-    // Create ATA for Destination
+    // Create ATA for Destinations
     token
         .create_associated_token_account(&alice.pubkey())
         .await
         .expect("failed to create associated token account");
     let alice_vault = token.get_associated_token_address(&alice.pubkey());
+    token
+        .create_associated_token_account(&bob.pubkey())
+        .await
+        .expect("failed to create associated token account");
+    let bob_vault = token.get_associated_token_address(&bob.pubkey());
 
     // Mint to multisig
     let mint_amount = 10 * u64::pow(10, decimals as u32);
@@ -214,10 +220,20 @@ async fn test_multisig_token_transfer() {
     // Transfer from miltisig:
     // - create transfer instruction
     let transfer_amount = mint_amount.overflowing_div(3).0;
-    let transfer_ixs = token
+    let transfer_ixs_1 = token
         .transfer_ix(
             &multisig_vault,
             &alice_vault,
+            &multisig_address,
+            transfer_amount,
+            &[multisig_address],
+        )
+        .await
+        .expect("failed to create transfer ix");
+    let transfer_ixs_2 = token
+        .transfer_ix(
+            &multisig_vault,
+            &bob_vault,
             &multisig_address,
             transfer_amount,
             &[multisig_address],
@@ -229,14 +245,17 @@ async fn test_multisig_token_transfer() {
     let recent_blockhash = ctx.lock().await.last_blockhash;
     let seed = uuid::Uuid::new_v4().as_u128();
 
-    // FIXME: handle multiple instructions
+    let mut ixs = Vec::new();
+    ixs.extend(transfer_ixs_1);
+    ixs.extend(transfer_ixs_2);
+
     let mut transaction = Transaction::new_with_payer(
         &[multisig::create_transaction(
             &funder.pubkey(),
             &custodian_1.pubkey(),
             &multisig_client_1.multisig_address,
             seed,
-            transfer_ixs,
+            ixs,
         )],
         Some(&funder.pubkey()),
     );
@@ -256,8 +275,12 @@ async fn test_multisig_token_transfer() {
     let transaction_data = multisig::Transaction::unpack_from_slice(transaction_info.data())
         .expect("transaction unpack");
 
-    // FIXME: handle multiple instructions
-    let accounts = transaction_data.instructions[0].clone().accounts;
+    let accounts: Vec<_> = transaction_data
+        .instructions
+        .into_iter()
+        .flat_map(|ix| ix.accounts)
+        .collect();
+
     let mut transaction = Transaction::new_with_payer(
         &[multisig::execute_transaction(
             &multisig_client_1.multisig_address,
@@ -274,25 +297,30 @@ async fn test_multisig_token_transfer() {
 
     // - verify transfer
     assert_eq!(
-        dbg!(
-            token
-                .get_account_info(&multisig_vault)
-                .await
-                .expect("failed to get account")
-                .base
-                .amount
-        ),
-        dbg!(mint_amount) - dbg!(transfer_amount)
+        token
+            .get_account_info(&multisig_vault)
+            .await
+            .expect("failed to get account")
+            .base
+            .amount,
+        mint_amount - transfer_amount * 2
     );
     assert_eq!(
-        dbg!(
-            token
-                .get_account_info(&alice_vault)
-                .await
-                .expect("failed to get account")
-                .base
-                .amount
-        ),
+        token
+            .get_account_info(&alice_vault)
+            .await
+            .expect("failed to get account")
+            .base
+            .amount,
+        transfer_amount
+    );
+    assert_eq!(
+        token
+            .get_account_info(&bob_vault)
+            .await
+            .expect("failed to get account")
+            .base
+            .amount,
         transfer_amount
     );
 }
