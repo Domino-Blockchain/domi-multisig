@@ -216,7 +216,7 @@ async fn test_multisig_token_transfer() {
         .expect("failed to mint token");
 
     // Transfer from miltisig:
-    let transfer_amount = mint_amount.overflowing_div(3).0;
+    let transfer_amount = mint_amount / 3;
 
     // - create transfer instruction
     // Combine into one list of instructions
