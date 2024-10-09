@@ -24,6 +24,7 @@ use domichain_program_test::BanksClient;
 use domichain_sdk::account::ReadableAccount;
 use domichain_sdk::instruction::Instruction;
 use domichain_sdk::signature::{Keypair, Signer};
+use domichain_sdk::signers::Signers;
 use domichain_sdk::transaction::Transaction;
 
 use crate::{Multisig, TransactionAccount};
@@ -36,25 +37,30 @@ pub struct MultisigClient {
     pub multisig_data: Multisig,
 }
 
-impl Drop for MultisigClient {
-    fn drop(&mut self) {
-        eprintln!("drop(MultisigClient)");
-    }
-}
-
 impl MultisigClient {
     pub async fn create_new(
+        threshold: u64,
+        owners: Vec<Pubkey>,
+        banks_client: BanksClient,
+        funder: Keypair,
+        voter: Keypair,
+    ) -> Self {
+        let seed = uuid::Uuid::new_v4().as_u128();
+
+        Self::create_new_with_seed(threshold, owners, banks_client, funder, voter, seed).await
+    }
+
+    pub async fn create_new_with_seed(
         threshold: u64,
         owners: Vec<Pubkey>,
         mut banks_client: BanksClient,
         funder: Keypair,
         voter: Keypair,
+        seed: u128,
     ) -> Self {
         let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
 
         // Create Multisig
-        let seed = uuid::Uuid::new_v4().as_u128();
-
         let mut transaction = Transaction::new_with_payer(
             &[crate::create_multisig(
                 &funder.pubkey(),
@@ -128,7 +134,7 @@ impl MultisigClient {
             crate::Multisig::unpack(multisig_info.data()).expect("multisig unpack");
     }
 
-    pub async fn submit_transaction(&mut self, transaction: Transaction) {
+    async fn submit_transaction(&mut self, transaction: Transaction) {
         let is_polling = true;
         let is_simulate = true;
         if is_polling {
@@ -226,7 +232,7 @@ impl MultisigClient {
         self.sync_multisig_data().await;
     }
 
-    pub async fn execute(&mut self, transaction_address: Pubkey) {
+    pub async fn execute<T: Signers + ?Sized>(&mut self, transaction_address: Pubkey, signers: &T) {
         let recent_blockhash = self.banks_client.get_latest_blockhash().await.unwrap();
 
         let transaction_data = self
@@ -243,6 +249,7 @@ impl MultisigClient {
             Some(&self.funder.pubkey()),
         );
 
+        transaction.partial_sign(signers, recent_blockhash);
         transaction.sign(&[&self.funder], recent_blockhash);
 
         self.submit_transaction(transaction).await;

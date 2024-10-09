@@ -10,14 +10,16 @@ use solana_program_test as domichain_program_test;
 #[cfg(feature = "solana")]
 use solana_sdk as domichain_sdk;
 
-use domichain_program_test::{processor, tokio, ProgramTest, ProgramTestContext};
-use domichain_sdk::signature::{Keypair, Signer};
-use multisig::MultisigClient;
-use spl_token_client;
-
 use {
-    domichain_program_test::tokio::sync::Mutex,
+    domichain_program_test::{
+        processor,
+        tokio::{self, sync::Mutex},
+        ProgramTest, ProgramTestContext,
+    },
+    domichain_sdk::signature::{Keypair, Signer},
+    multisig::MultisigClient,
     spl_token_client::{
+        self,
         client::{ProgramBanksClient, ProgramBanksClientProcessTransaction, ProgramClient},
         token::Token,
     },
@@ -252,7 +254,9 @@ async fn test_multisig_token_transfer() {
     let transaction_address = multisig_client_1.add_transaction(ixs).await;
 
     // - execute proposal
-    multisig_client_1.execute(transaction_address).await;
+    multisig_client_1
+        .execute::<[&Keypair; 0]>(transaction_address, &[])
+        .await;
 
     // - verify transfer
     assert_eq!(

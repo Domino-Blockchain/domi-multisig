@@ -122,7 +122,9 @@ async fn for_test_client_combined_mint_case() {
             //     "\t".repeat(other_clients_[other_multisig_client_index])
             // );
             other_multisig_client.approve(transaction_address).await;
-            other_multisig_client.execute(transaction_address).await;
+            other_multisig_client
+                .execute::<[&Keypair; 0]>(transaction_address, &[])
+                .await;
             // eprintln!(
             //     "{}-",
             //     "\t".repeat(other_clients_[other_multisig_client_index])
@@ -193,7 +195,9 @@ async fn test_client() {
             let transaction_address = multisig_client_1.add_owner(owner).await;
 
             multisig_client_2.approve(transaction_address).await;
-            multisig_client_2.execute(transaction_address).await;
+            multisig_client_2
+                .execute::<[&Keypair; 0]>(transaction_address, &[])
+                .await;
         }
     }
     multisig_client_1.sync_multisig_data().await;
@@ -223,7 +227,9 @@ async fn test_client() {
     );
 
     multisig_client_2.approve(transaction_address).await;
-    multisig_client_2.execute(transaction_address).await;
+    multisig_client_2
+        .execute::<[&Keypair; 0]>(transaction_address, &[])
+        .await;
 
     assert_eq!(
         multisig_client_2.multisig_data.pending_transactions.len(),
