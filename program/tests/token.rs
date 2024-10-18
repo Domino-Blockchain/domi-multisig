@@ -166,22 +166,28 @@ async fn test_multisig_token_transfer() {
         bob,
         ..
     } = TestContext::new(program_test).await;
-    let banks_client = ctx.lock().await.banks_client.clone();
     let funder = ctx.lock().await.payer.insecure_clone();
+    let banks_client = ctx.lock().await.banks_client.clone();
+
+    let funder = Arc::new(funder);
+    let banks_client = Arc::new(ProgramBanksClient::new_from_client(
+        Arc::new(Mutex::new(banks_client)),
+        ProgramBanksClientProcessTransaction,
+    ));
 
     // Multisig
     let threshold = 1;
 
-    let custodian_1 = Keypair::new();
+    let custodian_1 = Arc::new(Keypair::new());
     let owners = vec![custodian_1.pubkey()];
 
-    let voter = custodian_1.insecure_clone();
+    let voter = custodian_1.clone();
 
     let mut multisig_client_1 = MultisigClient::create_new(
         threshold,
         owners,
         banks_client.clone(),
-        funder.insecure_clone(),
+        funder.clone(),
         voter,
     )
     .await;

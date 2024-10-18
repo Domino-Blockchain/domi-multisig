@@ -45,6 +45,7 @@ pub enum MultisigInstruction {
     /// ...
     CreateTransaction {
         seed: u128,
+        accounts: Vec<Pubkey>,
         instructions: Vec<TransactionInstruction>,
     },
 

@@ -14,6 +14,7 @@ pub use self::error::*;
 pub use self::instruction::*;
 pub use self::processor::*;
 pub use self::state::*;
+#[cfg(feature = "test-bpf")]
 pub use self::client::*;
 
 #[cfg(feature = "wasm")]

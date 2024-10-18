@@ -50,6 +50,8 @@ pub struct Transaction {
     pub signers: Vec<bool>,
     // Boolean ensuring one time execution.
     pub did_execute: bool,
+    // Accounts used in transaction
+    pub accounts: Vec<Pubkey>,
     // Instructions for the transaction.
     pub instructions: Vec<TransactionInstruction>,
 }
@@ -78,35 +80,40 @@ impl Transaction {
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize)]
 pub struct TransactionInstruction {
     // Target program to execute against.
-    pub program_id: Pubkey,
+    pub program_id_index: u8,
     // Accounts required for the instruction.
     pub accounts: Vec<TransactionAccount>,
     // Instruction data for the instruction.
     pub data: Vec<u8>,
 }
 
-impl From<&TransactionInstruction> for Instruction {
-    fn from(tx: &TransactionInstruction) -> Instruction {
+impl TransactionInstruction {
+    pub fn to_instruction(&self, accounts: &[Pubkey]) -> Instruction {
         Instruction {
-            program_id: tx.program_id,
-            accounts: tx.accounts.iter().map(Into::into).collect(),
-            data: tx.data.clone(),
+            program_id: accounts[self.program_id_index as usize],
+            accounts: self
+                .accounts
+                .iter()
+                .map(|account| account.to_account_meta(accounts))
+                .collect(),
+            data: self.data.clone(),
         }
     }
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize, serde::Serialize, serde::Deserialize)]
 pub struct TransactionAccount {
-    pub pubkey: Pubkey,
+    pub pubkey_index: u8,
     pub is_signer: bool,
     pub is_writable: bool,
 }
 
-impl From<&TransactionAccount> for AccountMeta {
-    fn from(account: &TransactionAccount) -> AccountMeta {
-        match account.is_writable {
-            false => AccountMeta::new_readonly(account.pubkey, account.is_signer),
-            true => AccountMeta::new(account.pubkey, account.is_signer),
+impl TransactionAccount {
+    pub fn to_account_meta(&self, accounts: &[Pubkey]) -> AccountMeta {
+        let pubkey = accounts[self.pubkey_index as usize];
+        match self.is_writable {
+            false => AccountMeta::new_readonly(pubkey, self.is_signer),
+            true => AccountMeta::new(pubkey, self.is_signer),
         }
     }
 }

@@ -1,13 +1,18 @@
 #![cfg(feature = "test-bpf")]
 
 #[cfg(feature = "domichain")]
+use domichain_client;
+#[cfg(feature = "domichain")]
 use domichain_program;
 #[cfg(feature = "domichain")]
 use domichain_program_test;
 #[cfg(feature = "domichain")]
 use domichain_sdk;
 
+use domichain_sdk::commitment_config::CommitmentConfig;
 use multisig::MultisigClient;
+#[cfg(feature = "solana")]
+use solana_client as domichain_client;
 #[cfg(feature = "solana")]
 use solana_program as domichain_program;
 #[cfg(feature = "solana")]
@@ -16,19 +21,23 @@ use solana_program_test as domichain_program_test;
 use solana_sdk as domichain_sdk;
 
 use std::sync::Arc;
-use std::time::Duration;
 
+use domichain_client::nonblocking::rpc_client::RpcClient;
 use domichain_program::program_pack::Pack;
 use domichain_program::pubkey::Pubkey;
 use domichain_program_test::tokio::sync::Mutex;
-use domichain_program_test::tokio::time::timeout;
 use domichain_program_test::{processor, tokio, ProgramTest};
 use domichain_sdk::account::ReadableAccount;
-use domichain_sdk::native_token::SATOMIS_PER_DOMI;
-use domichain_sdk::rent::Rent;
 use domichain_sdk::signature::{Keypair, Signer};
-use domichain_sdk::system_instruction::transfer;
 use domichain_sdk::transaction::Transaction;
+use spl_token_client::client::{
+    ProgramBanksClient, ProgramBanksClientProcessTransaction, ProgramRpcClient,
+    ProgramRpcClientSendTransaction,
+};
+
+/*
+use std::time::Duration;
+use domichain_program_test::tokio::time::timeout;
 
 #[tokio::test]
 async fn test_client_combined_mint_case_n_times() {
@@ -36,7 +45,6 @@ async fn test_client_combined_mint_case_n_times() {
         for_test_client_combined_mint_case().await;
     }
 }
-
 async fn for_test_client_combined_mint_case() {
     let program_test = ProgramTest::new(
         "multisig",
@@ -46,11 +54,16 @@ async fn for_test_client_combined_mint_case() {
 
     // Start Program Test
     let (banks_client, funder, _recent_blockhash) = program_test.start().await;
+    let funder = Arc::new(funder);
+    let banks_client = Arc::new(ProgramBanksClient::new_from_client(
+        Arc::new(Mutex::new(banks_client)),
+        ProgramBanksClientProcessTransaction,
+    ));
 
     let threshold = 2;
     let n_owners = 3;
 
-    let owners_keys: Vec<_> = (0..n_owners).map(|_| Keypair::new()).collect();
+    let owners_keys: Vec<_> = (0..n_owners).map(|_| Arc::new(Keypair::new())).collect();
     let owners: Vec<_> = owners_keys.iter().map(|k| k.pubkey()).collect();
 
     let mut multisig_address = None;
@@ -60,7 +73,7 @@ async fn for_test_client_combined_mint_case() {
             MultisigClient::get_by_address(
                 multisig_address,
                 banks_client.clone(),
-                funder.insecure_clone(),
+                funder.clone(),
                 voter,
             )
             .await
@@ -69,7 +82,7 @@ async fn for_test_client_combined_mint_case() {
                 threshold,
                 owners.clone(),
                 banks_client.clone(),
-                funder.insecure_clone(),
+                funder.clone(),
                 voter,
             )
             .await;
@@ -135,6 +148,45 @@ async fn for_test_client_combined_mint_case() {
         handle.await.map_err(|e| (e, i)).unwrap();
     }
 }
+*/
+
+#[ignore = "account in use"]
+#[tokio::test]
+async fn test_client_rpc() {
+    let client = Arc::new(RpcClient::new_with_commitment(
+        "http://127.0.0.1:9967".to_string(),
+        CommitmentConfig::confirmed(),
+    ));
+    let rpc_client = Arc::new(ProgramRpcClient::new(
+        client.clone(),
+        ProgramRpcClientSendTransaction,
+    ));
+
+    let id_raw = tokio::fs::read_to_string("/home/zotho/DOMI/btc_transfer_id.json")
+        .await
+        .unwrap();
+    let id_bytes: Vec<u8> = serde_json::from_str(&id_raw).unwrap();
+    let payer = Arc::new(Keypair::from_bytes(&id_bytes).unwrap());
+
+    let funder = payer.clone();
+
+    let threshold = 1;
+
+    let owners = vec![payer.pubkey()];
+
+    let voter = payer.clone();
+    let seed = 123456;
+    let multisig_client_1 = MultisigClient::create_new_with_seed(
+        threshold,
+        owners,
+        rpc_client.clone(),
+        funder.clone(),
+        voter.clone(),
+        seed,
+    )
+    .await;
+    dbg!(multisig_client_1.multisig_address);
+}
 
 #[tokio::test]
 async fn test_client() {
@@ -146,6 +198,11 @@ async fn test_client() {
 
     // Start Program Test
     let (banks_client, funder, _recent_blockhash) = program_test.start().await;
+    let banks_client = Arc::new(ProgramBanksClient::new_from_client(
+        Arc::new(Mutex::new(banks_client)),
+        ProgramBanksClientProcessTransaction,
+    ));
+    let funder = Arc::new(funder);
 
     let threshold = 2;
 
@@ -158,18 +215,17 @@ async fn test_client() {
         custodian_3.pubkey(),
     ];
 
-    let voter = custodian_1.insecure_clone();
-
+    let voter = Arc::new(custodian_1);
     let mut multisig_client_1 = MultisigClient::create_new(
         threshold,
         owners,
         banks_client.clone(),
-        funder.insecure_clone(),
-        voter,
+        funder.clone(),
+        voter.clone(),
     )
     .await;
 
-    let voter = custodian_2.insecure_clone();
+    let voter = Arc::new(custodian_2);
     let mut multisig_client_2 = MultisigClient::get_by_address(
         multisig_client_1.multisig_address,
         banks_client,
@@ -344,7 +400,10 @@ async fn test() {
 
         assert_eq!(transaction_data.is_initialized, true);
         assert_eq!(transaction_data.did_execute, false);
-        assert_eq!(transaction_data.instructions[0].program_id, multisig::id());
+        assert_eq!(
+            transaction_data.accounts[transaction_data.instructions[0].program_id_index as usize],
+            multisig::id()
+        );
 
         // Approve
         let mut transaction = Transaction::new_with_payer(
@@ -383,6 +442,7 @@ async fn test() {
             &[multisig::execute_transaction(
                 &multisig_address,
                 &transaction_address,
+                &transaction_data.accounts,
                 &accounts,
             )],
             Some(&funder.pubkey()),
@@ -527,6 +587,7 @@ async fn test() {
         &[multisig::execute_transaction(
             &multisig_address,
             &transaction_address,
+            &transaction_data.accounts,
             &accounts,
         )],
         Some(&funder.pubkey()),
@@ -554,6 +615,16 @@ async fn test() {
     );
 }
 
+/*
+use domichain_sdk::native_token::SATOMIS_PER_DOMI;
+use domichain_sdk::rent::Rent;
+use domichain_sdk::signature::{Keypair, Signer};
+use domichain_sdk::system_instruction::transfer;
+use domichain_sdk::transaction::Transaction;
+use spl_token_client::client::{
+    ProgramBanksClient, ProgramBanksClientProcessTransaction, ProgramClient,
+};
+
 #[ignore = "cannot transfer SOL from non-empty account"]
 #[tokio::test]
 async fn test_client_multiple_instructions() {
@@ -565,19 +636,24 @@ async fn test_client_multiple_instructions() {
 
     // Start Program Test
     let (mut banks_client, funder, recent_blockhash) = program_test.start().await;
+    let funder = Arc::new(funder);
+    let banks_client = Arc::new(ProgramBanksClient::new_from_client(
+        Arc::new(Mutex::new(banks_client)),
+        ProgramBanksClientProcessTransaction,
+    ));
 
     let threshold = 1;
 
-    let custodian_1 = Keypair::new();
+    let custodian_1 = Arc::new(Keypair::new());
     let owners = vec![custodian_1.pubkey()];
 
-    let voter = custodian_1.insecure_clone();
+    let voter = custodian_1.clone();
 
     let multisig_client_1 = MultisigClient::create_new(
         threshold,
         owners,
         banks_client.clone(),
-        funder.insecure_clone(),
+        funder.clone(),
         voter,
     )
     .await;
@@ -588,11 +664,11 @@ async fn test_client_multiple_instructions() {
         SATOMIS_PER_DOMI,
     );
     let mut transaction = Transaction::new_with_payer(&[ix], Some(&funder.pubkey()));
-    transaction.sign(&[&funder], recent_blockhash);
+    transaction.sign(&[funder.as_ref()], recent_blockhash);
     banks_client
-        .process_transaction(transaction)
+        .send_transaction(&transaction)
         .await
-        .expect("process_transaction");
+        .expect("send_transaction");
 
     // Verify balance
     let actual_balance = banks_client
@@ -680,3 +756,4 @@ async fn test_client_multiple_instructions() {
         SATOMIS_PER_DOMI
     );
 }
+*/

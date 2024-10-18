@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+use std::iter::once;
+
 #[cfg(feature = "domichain")]
 use domichain_program;
 #[cfg(feature = "solana")]
@@ -38,6 +41,61 @@ pub fn create_multisig(
     }
 }
 
+pub fn get_instruction_accounts(ixs: &[Instruction]) -> Vec<Pubkey> {
+    let mut seen: HashSet<Pubkey> = HashSet::new();
+    let transaction_accounts: Vec<_> = ixs
+        .iter()
+        .flat_map(|ix| {
+            ix.accounts
+                .iter()
+                .map(|acc| acc.pubkey)
+                .chain(once(ix.program_id))
+        })
+        .filter(|pk| {
+            let is_new = seen.insert(*pk);
+            is_new
+        })
+        .collect();
+
+    transaction_accounts
+}
+
+pub fn encode_instructions(ixs: Vec<Instruction>) -> (Vec<Pubkey>, Vec<TransactionInstruction>) {
+    let transaction_accounts: Vec<_> = get_instruction_accounts(&ixs);
+    let pubkey_index = |pk| {
+        transaction_accounts
+            .iter()
+            .position(|tx_pk| *tx_pk == pk)
+            .unwrap() as u8
+    };
+
+    let mut transaction_instructions = Vec::with_capacity(ixs.len());
+    for ix in ixs {
+        let mut accounts = ix
+            .accounts
+            .into_iter()
+            .map(|acc| TransactionAccount {
+                pubkey_index: pubkey_index(acc.pubkey),
+                is_signer: acc.is_signer,
+                is_writable: acc.is_writable,
+            })
+            .collect::<Vec<_>>();
+
+        // Add transaction's program ID
+        accounts.push(TransactionAccount {
+            pubkey_index: pubkey_index(ix.program_id),
+            is_signer: false,
+            is_writable: false,
+        });
+        transaction_instructions.push(TransactionInstruction {
+            program_id_index: pubkey_index(ix.program_id),
+            accounts,
+            data: ix.data,
+        });
+    }
+    (transaction_accounts, transaction_instructions)
+}
+
 pub fn create_transaction(
     funder_pubkey: &Pubkey,
     proposer_pubkey: &Pubkey,
@@ -46,34 +104,11 @@ pub fn create_transaction(
     ixs: Vec<Instruction>,
 ) -> Instruction {
     let transaction_pubkey = get_transaction_address(seed);
-
-    let mut transaction_instructions = Vec::with_capacity(ixs.len());
-    for ix in ixs {
-        let mut accounts = ix
-            .accounts
-            .into_iter()
-            .map(|acc| TransactionAccount {
-                pubkey: acc.pubkey,
-                is_signer: acc.is_signer,
-                is_writable: acc.is_writable,
-            })
-            .collect::<Vec<_>>();
-
-        // Add transaction's program ID
-        accounts.push(TransactionAccount {
-            pubkey: ix.program_id,
-            is_signer: false,
-            is_writable: false,
-        });
-        transaction_instructions.push(TransactionInstruction {
-            program_id: ix.program_id,
-            accounts,
-            data: ix.data,
-        });
-    }
+    let (transaction_accounts, transaction_instructions) = encode_instructions(ixs);
 
     let data = MultisigInstruction::CreateTransaction {
         seed,
+        accounts: transaction_accounts,
         instructions: transaction_instructions,
     }
     .try_to_vec()
@@ -126,6 +161,7 @@ pub fn approve(
 pub fn execute_transaction(
     multisig_pubkey: &Pubkey,
     transaction_pubkey: &Pubkey,
+    transaction_pubkeys: &[Pubkey],
     transaction_accounts: &[TransactionAccount],
 ) -> Instruction {
     let mut accounts = vec![
@@ -134,7 +170,7 @@ pub fn execute_transaction(
     ];
 
     for account in transaction_accounts {
-        let mut account_meta: AccountMeta = account.into();
+        let mut account_meta: AccountMeta = account.to_account_meta(transaction_pubkeys);
         if account_meta.pubkey == *multisig_pubkey {
             account_meta.is_signer = false;
         }

@@ -16,6 +16,9 @@ test-bpf = [
     "spl-token",
     # "spl-token-2022",
     "spl-token-client",
+    "domichain-client",
+    "solana-client",
+    "serde_json",
 ]
 # bindings = ["no-entrypoint", "uuid", "getrandom"]
 bindings = ["no-entrypoint", "uuid"]
@@ -25,11 +28,13 @@ domichain = ["domichain-program"]
 
 [dependencies]
 borsh = "0.10"
-serde = { version = "1.0", features = ["derive"] }
-solana-program = { version = "=1.16.1", optional = true }
+domichain-client = { path = "../../domichain/client", optional = true }
 domichain-program = { path = "../../domichain/sdk/program", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0.116", optional = true }
+solana-client = { version = "=1.16.1", optional = true }
+solana-program = { version = "=1.16.1", optional = true }
 spl-token = { path = "../../domichain-program-library/token/program", optional = true }
-# spl-token-2022 = { path = "../../domichain-program-library/token/program-2022", optional = true }
 spl-token-client = { path = "../../domichain-program-library/token/client", optional = true }
 thiserror = "1.0"
 

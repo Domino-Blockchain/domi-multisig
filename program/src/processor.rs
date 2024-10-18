@@ -39,9 +39,19 @@ impl Processor {
                 msg!("Instruction: Create Multisig");
                 Self::process_create_multisig(program_id, accounts, seed, owners, threshold)?;
             }
-            MultisigInstruction::CreateTransaction { seed, instructions } => {
+            MultisigInstruction::CreateTransaction {
+                seed,
+                accounts: transaction_accounts,
+                instructions,
+            } => {
                 msg!("Instruction: Create Transaction");
-                Self::process_create_transaction(program_id, accounts, seed, instructions)?;
+                Self::process_create_transaction(
+                    program_id,
+                    accounts,
+                    seed,
+                    transaction_accounts,
+                    instructions,
+                )?;
             }
             MultisigInstruction::Approve => {
                 msg!("Instruction: Approve");
@@ -267,6 +277,7 @@ impl Processor {
         program_id: &Pubkey,
         accounts: &[AccountInfo],
         seed: u128,
+        transaction_accounts: Vec<Pubkey>,
         instructions: Vec<TransactionInstruction>,
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
@@ -296,12 +307,14 @@ impl Processor {
                 return Err(MultisigError::InvalidLastTransaction.into());
             }
             let TransactionInstruction {
-                program_id: transaction_program_id,
+                program_id_index: transaction_program_id_index,
                 accounts: _,
                 data,
             } = &instructions[0];
+            let transaction_program_id =
+                transaction_accounts[*transaction_program_id_index as usize];
 
-            if *program_id != *transaction_program_id {
+            if *program_id != transaction_program_id {
                 return Err(MultisigError::InvalidLastTransaction.into());
             }
 
@@ -341,6 +354,7 @@ impl Processor {
             multisig: *multisig_account_info.key,
             signers,
             did_execute: false,
+            accounts: transaction_accounts,
             instructions,
         };
 
@@ -459,8 +473,9 @@ impl Processor {
         // Execute the transaction signed by the multisig.
         let all_accounts = account_info_iter.cloned().collect::<Vec<_>>();
 
+        let transaction_accounts = transaction_account_data.accounts.as_slice();
         for ix in &transaction_account_data.instructions {
-            let mut ix: Instruction = ix.into();
+            let mut ix: Instruction = ix.to_instruction(transaction_accounts);
 
             ix.accounts = ix
                 .accounts

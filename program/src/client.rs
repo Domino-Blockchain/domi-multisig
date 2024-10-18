@@ -13,37 +13,41 @@ use solana_program as domichain_program;
 use solana_program_test as domichain_program_test;
 #[cfg(feature = "solana")]
 use solana_sdk as domichain_sdk;
+use spl_token_client::client::{ProgramClient, SendTransaction};
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use domichain_program::program_pack::Pack;
 use domichain_program::pubkey::Pubkey;
-use domichain_program_test::tokio::time::{timeout, Instant};
-use domichain_program_test::BanksClient;
+use domichain_program_test::tokio::time::timeout;
 use domichain_sdk::account::ReadableAccount;
 use domichain_sdk::instruction::Instruction;
-use domichain_sdk::signature::{Keypair, Signer};
+use domichain_sdk::signature::Signer;
 use domichain_sdk::signers::Signers;
 use domichain_sdk::transaction::Transaction;
 
 use crate::{Multisig, TransactionAccount};
 
-pub struct MultisigClient {
-    banks_client: BanksClient,
-    funder: Keypair,
-    voter: Keypair,
+pub struct MultisigClient<T> {
+    banks_client: Arc<dyn ProgramClient<T>>,
+    funder: Arc<dyn Signer>,
+    voter: Arc<dyn Signer>,
     pub multisig_address: Pubkey,
     pub multisig_data: Multisig,
 }
 
-impl MultisigClient {
+impl<T> MultisigClient<T>
+where
+    T: SendTransaction,
+{
     pub async fn create_new(
         threshold: u64,
         owners: Vec<Pubkey>,
-        banks_client: BanksClient,
-        funder: Keypair,
-        voter: Keypair,
+        banks_client: Arc<dyn ProgramClient<T>>,
+        funder: Arc<dyn Signer>,
+        voter: Arc<dyn Signer>,
     ) -> Self {
         let seed = uuid::Uuid::new_v4().as_u128();
 
@@ -53,9 +57,9 @@ impl MultisigClient {
     pub async fn create_new_with_seed(
         threshold: u64,
         owners: Vec<Pubkey>,
-        mut banks_client: BanksClient,
-        funder: Keypair,
-        voter: Keypair,
+        banks_client: Arc<dyn ProgramClient<T>>,
+        funder: Arc<dyn Signer>,
+        voter: Arc<dyn Signer>,
         seed: u128,
     ) -> Self {
         let recent_blockhash = banks_client.get_latest_blockhash().await.unwrap();
@@ -70,10 +74,10 @@ impl MultisigClient {
             )],
             Some(&funder.pubkey()),
         );
-        transaction.sign(&[&funder], recent_blockhash);
+        transaction.sign(&[funder.as_ref()], recent_blockhash);
 
         banks_client
-            .process_transaction(transaction)
+            .send_transaction(&transaction)
             .await
             .expect("process_transaction");
 
@@ -84,9 +88,9 @@ impl MultisigClient {
 
     pub async fn get_by_address(
         multisig_address: Pubkey,
-        mut banks_client: BanksClient,
-        funder: Keypair,
-        voter: Keypair,
+        banks_client: Arc<dyn ProgramClient<T>>,
+        funder: Arc<dyn Signer>,
+        voter: Arc<dyn Signer>,
     ) -> Self {
         let multisig_info = banks_client
             .get_account(multisig_address)
@@ -135,69 +139,84 @@ impl MultisigClient {
     }
 
     async fn submit_transaction(&mut self, transaction: Transaction) {
-        let is_polling = true;
-        let is_simulate = true;
-        if is_polling {
-            'main: loop {
-                let signature = transaction.signatures[0];
-
-                if is_simulate {
-                    loop {
-                        let res = timeout(
-                            Duration::from_secs(1),
-                            self.banks_client.simulate_transaction(transaction.clone()),
-                        )
-                        .await;
-                        if let Ok(Ok(res)) = res {
-                            if matches!(res.result, Some(Ok(()))) {
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                timeout(
-                    Duration::from_secs(1),
-                    self.banks_client.send_transaction(transaction.clone()),
-                )
-                .await
-                .unwrap()
-                .expect("send_transaction");
-
-                let start = Instant::now();
-                loop {
-                    let status = timeout(
-                        Duration::from_secs(1),
-                        self.banks_client.get_transaction_status(signature),
-                    )
-                    .await
-                    .unwrap()
-                    .expect("get_transaction_status");
-                    // let slot = self
-                    //     .banks_client
-                    //     .get_slot_with_context(
-                    //         Context::current(),
-                    //         domichain_sdk::commitment_config::CommitmentLevel::Confirmed,
-                    //     )
-                    //     .await
-                    //     .expect("get_slot_with_context");
-                    // dbg!(slot);
-                    if status.is_some() {
-                        break 'main;
-                    }
-                    if start.elapsed() > Duration::from_secs(1) {
-                        continue 'main;
-                    }
-                }
-            }
-        } else {
-            self.banks_client
-                .process_transaction(transaction)
-                .await
-                .expect("process_transaction");
-        }
+        let _output = self
+            .banks_client
+            .send_transaction(&transaction)
+            .await
+            .unwrap();
     }
 
+    async fn try_submit_transaction(&mut self, transaction: Transaction) -> Result<(), ()> {
+        match self.banks_client.send_transaction(&transaction).await {
+            Ok(_) => Ok(()),
+            Err(_) => Err(()),
+        }
+    }
+    /*
+       async fn submit_transaction(&mut self, transaction: Transaction) {
+           let is_polling = true;
+           let is_simulate = true;
+           if is_polling {
+               'main: loop {
+                   let signature = transaction.signatures[0];
+
+                   if is_simulate {
+                       loop {
+                           let res = timeout(
+                               Duration::from_secs(1),
+                               self.banks_client.simulate_transaction(transaction.clone()),
+                           )
+                           .await;
+                           if let Ok(Ok(res)) = res {
+                               if matches!(res.result, Some(Ok(()))) {
+                                   break;
+                               }
+                           }
+                       }
+                   }
+
+                   timeout(
+                       Duration::from_secs(1),
+                       self.banks_client.send_transaction(transaction.clone()),
+                   )
+                   .await
+                   .unwrap()
+                   .expect("send_transaction");
+
+                   let start = Instant::now();
+                   loop {
+                       let status = timeout(
+                           Duration::from_secs(1),
+                           self.banks_client.get_transaction_status(signature),
+                       )
+                       .await
+                       .unwrap()
+                       .expect("get_transaction_status");
+                       // let slot = self
+                       //     .banks_client
+                       //     .get_slot_with_context(
+                       //         Context::current(),
+                       //         domichain_sdk::commitment_config::CommitmentLevel::Confirmed,
+                       //     )
+                       //     .await
+                       //     .expect("get_slot_with_context");
+                       // dbg!(slot);
+                       if status.is_some() {
+                           break 'main;
+                       }
+                       if start.elapsed() > Duration::from_secs(1) {
+                           continue 'main;
+                       }
+                   }
+               }
+           } else {
+               self.banks_client
+                   .process_transaction(transaction)
+                   .await
+                   .expect("process_transaction");
+           }
+       }
+    */
     pub async fn approve(&mut self, transaction_address: Pubkey) {
         let recent_blockhash = self.banks_client.get_latest_blockhash().await.unwrap();
 
@@ -215,7 +234,10 @@ impl MultisigClient {
             )],
             Some(&self.funder.pubkey()),
         );
-        transaction.sign(&[&self.funder, &self.voter], recent_blockhash);
+        transaction.sign(
+            &[self.funder.as_ref(), self.voter.as_ref()],
+            recent_blockhash,
+        );
 
         self.submit_transaction(transaction).await;
 
@@ -232,7 +254,7 @@ impl MultisigClient {
         self.sync_multisig_data().await;
     }
 
-    pub async fn execute<T: Signers + ?Sized>(&mut self, transaction_address: Pubkey, signers: &T) {
+    pub async fn execute<S: Signers + ?Sized>(&mut self, transaction_address: Pubkey, signers: &S) {
         let recent_blockhash = self.banks_client.get_latest_blockhash().await.unwrap();
 
         let transaction_data = self
@@ -244,13 +266,14 @@ impl MultisigClient {
             &[crate::execute_transaction(
                 &self.multisig_address,
                 &transaction_address,
-                &unique_accounts(transaction_data),
+                &transaction_data.accounts,
+                &unique_accounts(transaction_data.instructions),
             )],
             Some(&self.funder.pubkey()),
         );
 
         transaction.partial_sign(signers, recent_blockhash);
-        transaction.sign(&[&self.funder], recent_blockhash);
+        transaction.sign(&[self.funder.as_ref()], recent_blockhash);
 
         self.submit_transaction(transaction).await;
 
@@ -281,17 +304,25 @@ impl MultisigClient {
             ixs.push(crate::execute_transaction(
                 &self.multisig_address,
                 transaction_address,
-                &unique_accounts(transaction_data),
+                &transaction_data.accounts,
+                &unique_accounts(transaction_data.instructions),
             ));
         }
 
         let mut transaction = Transaction::new_with_payer(&ixs, Some(&self.funder.pubkey()));
-        transaction.sign(&[&self.funder, &self.voter], recent_blockhash);
+        transaction.sign(
+            &[self.funder.as_ref(), self.voter.as_ref()],
+            recent_blockhash,
+        );
 
         self.submit_transaction(transaction).await;
     }
 
-    pub async fn add_transaction_with_seed(&mut self, ixs: Vec<Instruction>, seed: u128) -> Pubkey {
+    pub async fn add_transaction_with_seed(
+        &mut self,
+        ixs: Vec<Instruction>,
+        seed: u128,
+    ) -> Result<Pubkey, ()> {
         let recent_blockhash = self.banks_client.get_latest_blockhash().await.unwrap();
 
         // Create Transaction instruction
@@ -305,14 +336,21 @@ impl MultisigClient {
             )],
             Some(&self.funder.pubkey()),
         );
-        transaction.sign(&[&self.funder, &self.voter], recent_blockhash);
+        transaction.sign(
+            &[self.funder.as_ref(), self.voter.as_ref()],
+            recent_blockhash,
+        );
 
-        timeout(
+        match timeout(
             Duration::from_secs(10),
-            self.submit_transaction(transaction),
+            self.try_submit_transaction(transaction),
         )
         .await
-        .unwrap();
+        .unwrap()
+        {
+            Ok(_) => (),
+            Err(_) => return Err(()),
+        };
 
         let transaction_address = crate::get_transaction_address(seed);
 
@@ -325,12 +363,12 @@ impl MultisigClient {
 
         self.sync_multisig_data().await;
 
-        transaction_address
+        Ok(transaction_address)
     }
 
     pub async fn add_transaction(&mut self, ixs: Vec<Instruction>) -> Pubkey {
         let seed = uuid::Uuid::new_v4().as_u128();
-        let transaction_address = self.add_transaction_with_seed(ixs, seed).await;
+        let transaction_address = self.add_transaction_with_seed(ixs, seed).await.unwrap();
         transaction_address
     }
 
@@ -347,16 +385,17 @@ impl MultisigClient {
     }
 }
 
-fn unique_accounts(transaction_data: crate::Transaction) -> Vec<TransactionAccount> {
-    let accounts: Vec<_> = transaction_data
-        .instructions
+fn unique_accounts(
+    transaction_instructions: Vec<crate::TransactionInstruction>,
+) -> Vec<TransactionAccount> {
+    let accounts: Vec<_> = transaction_instructions
         .into_iter()
         .flat_map(|ix| ix.accounts)
         .collect();
-    let mut pubkeys_to_account: HashMap<Pubkey, TransactionAccount> = HashMap::new();
+    let mut pubkeys_to_account: HashMap<u8, TransactionAccount> = HashMap::new();
     for new_account in accounts {
         pubkeys_to_account
-            .entry(new_account.pubkey)
+            .entry(new_account.pubkey_index)
             .and_modify(|existing_account| {
                 // Update signer/writable if other instruction have it
                 existing_account.is_signer |= new_account.is_signer;
